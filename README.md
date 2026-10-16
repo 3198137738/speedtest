@@ -25,18 +25,55 @@
 - 可选令牌桶限速，把总速率控制在目标值（默认 10Gbps），避免无意义跑飞；
 - 实时打印即时速率 / 平均速率 / 累计流量。
 
-## 准备被测文件
+## 一体化脚本 `bench.sh` / `bench.ps1`（推荐）
 
-在被测服务器上放一个足够大的文件（建议 ≥ 1GiB，减少重连开销），用任意 HTTP
-服务暴露，例如：
+把「服务器端生成文件 + 起 HTTP 服务」和「客户端压测」整合到一个脚本里，
+两端都是你自己的机器，全程流量可控。三个子命令：
+
+| 子命令 | 在哪台机器跑 | 作用 |
+|--------|--------------|------|
+| `serve` | 被测服务器 | 生成测试文件并起 HTTP 下载源 |
+| `load`  | 客户端 | 并发下载，24h 不间断压测 |
+| `all`   | 任意单机 | 本机既做源又压测（验证工具/单机自测） |
+
+### Linux / macOS
 
 ```bash
-# 在被测服务器上
-dd if=/dev/zero of=/var/www/html/testfile.bin bs=1M count=2048   # 生成 2GiB
-# 用 nginx / caddy / python -m http.server 等方式提供下载
+chmod +x bench.sh
+
+# ① 被测服务器：起下载源（默认 2GiB 文件、端口 8080）
+./bench.sh serve
+./bench.sh serve --size 4096 --port 9000          # 可选：4GiB、换端口
+
+# ② 客户端：24h 压测（URL 用上一步打印出来的）
+./bench.sh load http://服务器IP:8080/testfile.bin
+./bench.sh load http://服务器IP:8080/testfile.bin --conns 128 --rate 10
+
+# 单机自测（本地回环，先确认工具可用）
+./bench.sh all
 ```
 
-## 一键运行
+### Windows (PowerShell)
+
+```powershell
+.\bench.ps1 serve -Size 2048 -Port 8080
+.\bench.ps1 load  -Url http://服务器IP:8080/testfile.bin -Conns 128 -Rate 10
+.\bench.ps1 all
+```
+
+脚本会自动生成测试文件、创建 Python 虚拟环境并安装依赖。`bench.*` 的可选参数
+（`--conns/--duration/--rate` 等）与下文「常用选项」一致。
+
+## 手动准备被测文件（可选）
+
+若不用 `serve`，也可手动在被测服务器上放一个大文件（建议 ≥ 1GiB）：
+
+```bash
+dd if=/dev/zero of=/var/www/html/testfile.bin bs=1M count=2048   # 生成 2GiB
+# 再用 nginx / caddy / python -m http.server 提供下载
+```
+
+## 仅客户端一键运行
 
 ### Linux / macOS
 
