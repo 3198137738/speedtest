@@ -1,4 +1,4 @@
-```bash
+
 #!/usr/bin/env bash
 
 set -u
@@ -123,4 +123,3 @@ echo
 echo "停止测试："
 echo "kill $PID"
 echo
-```
