@@ -1,4 +1,3 @@
-
 #!/usr/bin/env bash
 
 set -u
@@ -28,7 +27,6 @@ read -rp "请选择 [1/2]: " MODE
 
 case "$MODE" in
     1)
-        # 随机 30 分钟 ~ 6 小时
         DURATION=$((1800 + RANDOM % 19801))
         MODE_NAME="random"
         ;;
@@ -50,10 +48,7 @@ PID_FILE="/var/run/speedtest.pid"
 END_TIME=$(( $(date +%s) + DURATION ))
 
 worker() {
-    id="$1"
-
     while [ "$(date +%s)" -lt "$END_TIME" ]; do
-
         curl \
             -4 \
             -L \
@@ -65,13 +60,11 @@ worker() {
             --retry-delay 1 \
             -o /dev/null \
             "$URL"
-
         sleep 1
     done
 }
 
 run_test() {
-
     echo "==================================" >> "$LOG"
     echo "开始时间: $(date)" >> "$LOG"
     echo "URL: $URL" >> "$LOG"
@@ -81,15 +74,14 @@ run_test() {
     echo "==================================" >> "$LOG"
 
     for i in $(seq 1 "$WORKERS"); do
-        worker "$i" >> "$LOG" 2>&1 &
+        worker >> "$LOG" 2>&1 &
     done
 
     wait
-
     echo "结束时间: $(date)" >> "$LOG"
 }
 
-nohup bash -c "$(declare -f worker run_test); \
+nohup setsid bash -c "$(declare -f worker run_test); \
 URL='$URL'; \
 WORKERS='$WORKERS'; \
 DURATION='$DURATION'; \
@@ -99,7 +91,6 @@ run_test" \
 >/dev/null 2>&1 &
 
 PID=$!
-
 echo "$PID" > "$PID_FILE"
 
 echo
@@ -121,5 +112,5 @@ echo "查看日志："
 echo "tail -f $LOG"
 echo
 echo "停止测试："
-echo "kill $PID"
+echo "kill -- -$PID"
 echo
