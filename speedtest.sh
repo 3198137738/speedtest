@@ -2,6 +2,11 @@
 
 set -u
 
+# 强制交互信息输出到当前终端，避免 SSH 会话 stdout 被重定向时看不到结果
+if [ -w /dev/tty ]; then
+    exec >/dev/tty 2>&1
+fi
+
 WORKERS="${WORKERS:-16}"
 LOG_DIR="/var/log/speedtest"
 mkdir -p "$LOG_DIR"
@@ -41,10 +46,8 @@ case "$MODE" in
 esac
 
 NOW=$(date +%Y%m%d_%H%M%S)
-
 LOG="$LOG_DIR/${MODE_NAME}_${NOW}.log"
 PID_FILE="/var/run/speedtest.pid"
-
 END_TIME=$(( $(date +%s) + DURATION ))
 
 worker() {
@@ -81,7 +84,12 @@ run_test() {
     echo "结束时间: $(date)" >> "$LOG"
 }
 
-nohup setsid bash -c "$(declare -f worker run_test); \
+RUNNER=(bash -c)
+if command -v setsid >/dev/null 2>&1; then
+    RUNNER=(setsid bash -c)
+fi
+
+nohup "${RUNNER[@]}" "$(declare -f worker run_test); \
 URL='$URL'; \
 WORKERS='$WORKERS'; \
 DURATION='$DURATION'; \
@@ -93,24 +101,34 @@ run_test" \
 PID=$!
 echo "$PID" > "$PID_FILE"
 
+sleep 1
+
 echo
-echo "=================================="
-echo "测试已后台启动"
-echo "=================================="
-echo
-echo "PID      : $PID"
-echo "模式     : $MODE_NAME"
-echo "运行时间 : $DURATION 秒"
-echo "并发数   : $WORKERS"
-echo "限速     : 无"
-echo "日志     : $LOG"
-echo
-echo "查看进程："
-echo "ps -p $PID -o pid,etime,cmd"
-echo
-echo "查看日志："
-echo "tail -f $LOG"
-echo
-echo "停止测试："
-echo "kill -- -$PID"
-echo
+if kill -0 "$PID" 2>/dev/null; then
+    echo "=================================="
+    echo "测试已后台启动"
+    echo "=================================="
+    echo
+    echo "PID      : $PID"
+    echo "模式     : $MODE_NAME"
+    echo "运行时间 : $DURATION 秒"
+    echo "并发数   : $WORKERS"
+    echo "限速     : 无"
+    echo "日志     : $LOG"
+    echo
+    echo "查看进程："
+    echo "ps -p $PID -o pid,etime,cmd"
+    echo
+    echo "查看日志："
+    echo "tail -f $LOG"
+    echo
+    echo "停止测试："
+    if command -v setsid >/dev/null 2>&1; then
+        echo "kill -- -$PID"
+    else
+        echo "kill $PID"
+    fi
+else
+    echo "启动失败，请查看日志：$LOG"
+    exit 1
+fi
