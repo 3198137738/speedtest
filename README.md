@@ -25,6 +25,33 @@
 - 可选令牌桶限速，把总速率控制在目标值（默认 10Gbps），避免无意义跑飞；
 - 实时打印即时速率 / 平均速率 / 累计流量。
 
+## 🚀 systemd 后台一键版（不间断 + 不限速 + 自动探测并发 + 实时统计）
+
+适合在 Linux 服务器上长期后台跑。**目标 URL 必须是你自己服务器上的大文件**，
+可先在被测服务器用 `./bench.sh serve` 起一个下载源。
+
+```bash
+# ① 被测服务器：起下载源（生成大文件 + HTTP 服务，会打印一个 URL）
+./bench.sh serve --size 10240            # 例：10GiB 文件
+
+# ② 客户端：把该 URL 注册为 systemd 服务（自动探测并发、不限速、不间断）
+sudo ./install-systemd.sh http://你的服务器IP:8080/testfile.bin
+#    只想跑 24h 就退出：  sudo ./install-systemd.sh http://...  86400
+
+sudo systemctl start  speedtest     # 启动
+sudo systemctl enable speedtest     # 开机自启
+journalctl -u speedtest -f          # 看实时统计（即时/平均速率、累计流量）
+sudo systemctl stop   speedtest     # 停止
+sudo ./install-systemd.sh --uninstall   # 卸载
+```
+
+服务特性：`--auto` 启动时自动探测最佳并发、`-r 0` 不限速、`-d 0` 不间断、
+`Restart=on-failure` 崩溃/断网自动拉起、`LimitNOFILE=1048576` 放开 fd 上限。
+
+> ⚠️ 不要把公共测速端点（如 `proof.ovh.net` 等第三方）设为 24h 不间断的下载源：
+> 那会对第三方造成巨量带宽消耗、属于滥用，且测的也不是你自己的服务器。
+> 公共测速文件只适合做**几秒~几十秒的短时测速**（例如下面的手动 `--auto` 探测）。
+
 ## 一体化脚本 `bench.sh` / `bench.ps1`（推荐）
 
 把「服务器端生成文件 + 起 HTTP 服务」和「客户端压测」整合到一个脚本里，
@@ -105,8 +132,11 @@ python3 speedtest.py <URL> [选项]
 | 选项 | 说明 | 默认 |
 |------|------|------|
 | `-c, --connections` | 并发连接数（10Gbps 建议 32~256） | 64 |
-| `-d, --duration` | 运行秒数，`0` 为无限循环 | 86400 (24h) |
-| `-r, --rate` | 目标总速率 Gbps，`0` 为不限速 | 10 |
+| `--auto` | 自动探测最佳并发（忽略 `-c`） | 关 |
+| `--max-connections` | 自动探测并发上限 | 256 |
+| `--probe` | 自动探测每档持续秒数 | 5 |
+| `-d, --duration` | 运行秒数，`0` 为不间断 | 0 |
+| `-r, --rate` | 目标总速率 Gbps，`0` 为不限速 | 0 |
 | `--chunk` | 每次读取字节数 | 1048576 (1MiB) |
 | `-i, --interval` | 统计打印间隔秒 | 2 |
 | `--timeout` | socket 连接 / 读取超时秒 | 30 |

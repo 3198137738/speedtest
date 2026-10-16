@@ -132,14 +132,56 @@ async def reporter(stats, stop_evt, interval):
         )
 
 
+async def probe_best_connections(args, verify_ssl):
+    """自动探测最佳并发：逐级(8→16→…)各跑 probe 秒，测平均吞吐，
+    当再翻倍提升 < 10% 或达上限时停止，返回吞吐最高的并发数。"""
+    levels = [8, 16, 32, 64, 128, 256, 512]
+    levels = [n for n in levels if n <= args.max_connections]
+    if not levels:
+        levels = [args.max_connections]
+    print(f"自动探测并发中（每档 {args.probe}s，不限速）...", flush=True)
+    best_bps, best_n, prev_bps = 0.0, levels[0], 0.0
+    for n in levels:
+        stats = Stats()
+        stop_evt = asyncio.Event()
+        limiter = RateLimiter(0)
+        tasks = [
+            asyncio.create_task(
+                worker(i, args.url, stats, limiter, stop_evt,
+                       args.chunk, args.timeout, verify_ssl)
+            )
+            for i in range(n)
+        ]
+        await asyncio.sleep(args.probe)
+        stop_evt.set()
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        _, avg, _, _ = stats.snapshot()
+        print(f"  并发 {n:>4} -> {human(avg)}", flush=True)
+        if avg > best_bps:
+            best_bps, best_n = avg, n
+        # 再翻倍提升不足 10%，认为已到拐点，停止探测
+        if prev_bps > 0 and avg < prev_bps * 1.10:
+            break
+        prev_bps = avg
+    print(f"选定并发：{best_n}（探测峰值 {human(best_bps)}）", flush=True)
+    return best_n
+
+
 async def main_async(args):
+    verify_ssl = not args.insecure
+
+    # 自动探测并发（--auto）：覆盖 -c
+    if args.auto:
+        args.connections = await probe_best_connections(args, verify_ssl)
+
     stats = Stats()
     stop_evt = asyncio.Event()
 
     # 目标总速率（Gbps）-> 字节/秒
     rate_bps = args.rate * 1e9 / 8 if args.rate > 0 else 0
     limiter = RateLimiter(rate_bps)
-    verify_ssl = not args.insecure
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -189,10 +231,16 @@ def parse_args():
     p.add_argument("url", help="被测文件的 HTTP(S) URL（需为你有权测试的服务器）")
     p.add_argument("-c", "--connections", type=int, default=64,
                    help="并发连接数，默认 64（10Gbps 建议 32~256）")
-    p.add_argument("-d", "--duration", type=int, default=86400,
-                   help="运行秒数，默认 86400(=24h)；设 0 为无限循环")
-    p.add_argument("-r", "--rate", type=float, default=10.0,
-                   help="目标总速率 Gbps，默认 10；设 0 为不限速")
+    p.add_argument("--auto", action="store_true",
+                   help="自动探测最佳并发（忽略 -c）")
+    p.add_argument("--max-connections", type=int, default=256,
+                   help="自动探测时的并发上限，默认 256")
+    p.add_argument("--probe", type=float, default=5.0,
+                   help="自动探测每档持续秒数，默认 5")
+    p.add_argument("-d", "--duration", type=int, default=0,
+                   help="运行秒数，默认 0=不间断；如需 24h 填 86400")
+    p.add_argument("-r", "--rate", type=float, default=0.0,
+                   help="目标总速率 Gbps，默认 0=不限速；如需限速填如 10")
     p.add_argument("--chunk", type=int, default=1 << 20,
                    help="每次读取字节数，默认 1048576(1MiB)")
     p.add_argument("-i", "--interval", type=float, default=2.0,
