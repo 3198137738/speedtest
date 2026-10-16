@@ -17,6 +17,35 @@
 此外请注意：从服务器下载会消耗其**出口带宽**，云服务商通常**按流量计费**，
 24 小时 × 10Gbps ≈ 108 TB/天，可能产生高额费用，务必评估后再运行。
 
+## ✅ 最终一键脚本 `oneclick.sh`
+
+从零到后台跑起来，**一条命令**搞定：装依赖 → 自动探测最佳并发 → 不限速 →
+不间断 → 注册 systemd 后台 + 开机自启 → 跟随实时统计。
+
+```bash
+# 克隆
+git clone https://github.com/3198137738/speedtest.git && cd speedtest
+
+# ① 被测服务器：起下载源（生成大文件 + HTTP，打印出一个 URL）
+./bench.sh serve --size 10240            # 10GiB
+
+# ② 客户端：把上一步的 URL 传进来，一键启动后台压测
+sudo ./oneclick.sh http://你的服务器IP:8080/testfile.bin
+#    只想跑 24h：  sudo ./oneclick.sh http://...  86400
+#    卸载服务：    sudo ./oneclick.sh --uninstall
+```
+
+管理命令：
+
+```bash
+journalctl -u speedtest -f       # 实时统计
+systemctl status speedtest       # 运行状态
+systemctl stop   speedtest       # 停止
+```
+
+> 无 systemd / 非 root 的环境（如容器）会自动退化为**前台运行**。
+> 目标 URL 必须是你自己的服务器；公共测速端点只适合几秒~几十秒的短时测速。
+
 ## 原理
 
 - 启动 N 个并发协程，各自循环 `GET` 同一个 URL，下载的数据**流式丢弃**（不落盘，
